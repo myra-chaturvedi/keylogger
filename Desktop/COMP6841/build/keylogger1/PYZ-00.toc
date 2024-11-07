@@ -1,4 +1,4 @@
-('/Users/admin/COMP6841/build/keylogger1/PYZ-00.pyz',
+('/Users/admin/Desktop/COMP6841/build/keylogger1/PYZ-00.pyz',
  [('AppKit',
    '/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/site-packages/AppKit/__init__.py',
    'PYMODULE'),
